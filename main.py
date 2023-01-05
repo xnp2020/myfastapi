@@ -1,9 +1,11 @@
 
-from fastapi import FastAPI, Path, Query
-from fastapi import FastAPI, Path
+from fastapi import Cookie, FastAPI
+from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field
+from fastapi import Body
 from enum import Enum
 
-from fastapi import FastAPI, Query, Path
+from fastapi import FastAPI, Path, Query
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -15,10 +17,9 @@ app = FastAPI()
 async def root(item_id: int):
     return {"item_id": item_id}
 
-# path 变量枚举
-
 
 class ModelName(str, Enum):
+    # path 变量枚举
     alexnet = 'alexnet'
     resnet = 'resnet'
     lenet = 'lenet'
@@ -53,7 +54,7 @@ async def read_item(skip: int = 0, limit: int = 10):
 
 
 @app.get("/ta/{item_id}")
-# 可选查询参数，设置可以为None
+# 可选查询参数，设置可以为None，默认为None
 async def read_item(item_id: str, q: str | None = None):
     if q:
         return {"item_id": item_id, "q": q}
@@ -79,10 +80,9 @@ async def read_user_item(item_id: str, needy: str):
     item = {"item_id": item_id, "needy": needy}
     return item
 
-# 构建post请求体模型
-
 
 class Item(BaseModel):
+    # Pydantic models 构建post请求体模型
     name: str
     description: str | None = None
     price: float
@@ -145,6 +145,7 @@ async def read_items(q: str | None = Query(
 
 @app.get("/noodle/{item_id}")
 # Path参数添加元数据（支持所有Query元数据）和数据验证
+# 第一个参数为 * 让python将后续参数视为 kwargs
 async def read_items(
     *,
     item_id: int = Path(title="The ID of the item to get", ge=0, le=1000),
@@ -155,3 +156,172 @@ async def read_items(
     if q:
         results.update({"q": q})
     return results
+
+
+class User(BaseModel):
+    username: str
+    full_name: str | None = None
+
+
+@app.put("/user/{item_id}")
+# 多个请求体
+# {
+#   "item": {
+#       "name": "Foo",
+#       "description": "The pretender",
+#       "price": 42.0,
+#       "tax": 3.2
+#   },
+#   "user": {
+#       "username": "dave",
+#       "full_name": "Dave Grohl"
+#   }
+# }
+async def update_item(item_id: int, item: Item, user: User):
+    results = {"item_id": item_id, "item": item, "user": user}
+    return results
+
+
+@app.put("/fire/{item_id}")
+# 使用Body参数定义请求体，另外支持Query元数据和数据验证
+async def update_item(item_id: int,  importance: int = Body(embed=True)):
+    results = {"item_id": item_id, "importance": importance}
+    return results
+
+
+@app.put("/fire2/{item_id}")
+# 使用Body参数定义请求体，混合Pydantic models
+async def update_item(item_id: int, item: Item, user: User, importance: int = Body()):
+    results = {"item_id": item_id, "item": item,
+               "user": user, "importance": importance}
+    return results
+
+
+class Goods(BaseModel):
+    # 在Pydantic models中使用Field定义元数据和数据验证
+    name: str
+    description: str | None = Field(
+        default=None, title="The description of the item", max_length=300)
+    price: float = Field(
+        gt=0, description="The price must be greater than zero")
+    tax: float | None = None
+
+
+@app.put("/goods/{item_id}")
+async def update_item(item_id: int, item: Goods = Body(embed=True)):
+    results = {"item_id": item_id, "item": item}
+    return results
+
+
+class Iters(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    tax: float | None = None
+    tags: list[str] = []  # list类型
+    tags2: set[str] = set()  # set类型，自动去重
+
+
+@app.put("/iters/{item_id}")
+async def update_item(item_id: int, item: Iters):
+    results = {"item_id": item_id, "item": item}
+    return results
+
+
+class Image(BaseModel):
+    url: HttpUrl  # 特殊类型
+    name: str
+
+
+class School(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    tax: float | None = None
+    tags: set[str] = set()
+    image: Image | None = None  # 嵌套模型
+
+
+@app.put("/schools/{item_id}")
+async def update_item(item_id: int, item: School):
+    results = {"item_id": item_id, "item": item}
+    return results
+
+
+class Image2(BaseModel):
+    url: HttpUrl
+    name: str
+
+
+class Item2(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    tax: float | None = None
+    tags: set[str] = set()
+    images: list[Image2] | None = None
+
+
+class Offer(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    items: list[Item2]
+
+
+@app.post("/offers/")
+# 多重嵌套
+async def create_offer(offer: Offer):
+    return offer
+
+
+@app.post("/index-weights/")
+# 只指定键和值类型，不指定键名
+async def create_index_weights(weights: dict[int, float]):
+    return weights
+
+
+class Kick(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    tax: float | None = None
+
+# 添加example，只影响docs
+    class Config:
+        schema_extra = {
+            "example": {
+                "name": "Foo",
+                "description": "A very nice Item",
+                "price": 35.4,
+                "tax": 3.2,
+            }
+        }
+
+
+@app.put("/kick/{item_id}")
+async def update_item(item_id: int, item: Kick):
+    results = {"item_id": item_id, "item": item}
+    return results
+
+
+# Path() Query() Header() Cookie() Body() Form() File() 都可以使用example、examples来添加说明
+@app.put("/exs/{item_id}")
+async def update_item(
+    item_id: int,
+    item: Item = Body(
+        example={
+            "name": "Foo",
+            "description": "A very nice Item",
+            "price": 35.4,
+            "tax": 3.2,
+        },
+    ),
+):
+    results = {"item_id": item_id, "item": item}
+    return results
+
+
+@app.get("/cooks/")
+async def read_items(ads_id: str | None = Cookie(default=None)):
+    return {"ads_id": ads_id}
