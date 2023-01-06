@@ -1,12 +1,9 @@
-
-from fastapi import Cookie, FastAPI
-from pydantic import BaseModel, HttpUrl
-from pydantic import BaseModel, Field
-from fastapi import Body
+from pydantic import BaseModel, EmailStr
+from fastapi import FastAPI, Header
 from enum import Enum
 
-from fastapi import FastAPI, Path, Query
-from pydantic import BaseModel
+from fastapi import Body, Cookie, FastAPI, Path, Query
+from pydantic import BaseModel, Field, HttpUrl
 
 app = FastAPI()
 
@@ -323,5 +320,83 @@ async def update_item(
 
 
 @app.get("/cooks/")
+# cookie参数
 async def read_items(ads_id: str | None = Cookie(default=None)):
     return {"ads_id": ads_id}
+
+
+@app.get("/pubs/")
+# header参数
+async def read_items(token: str | None = Header(default=None)):
+    return {"token": token}
+
+
+@app.get("/pubs2/")
+async def read_items(x_token: list[str] | None = Header(default=None)):
+    return {"X-Token values": x_token}
+
+
+class Res(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    tax: float | None = None
+    tags: list[str] = []
+
+
+@app.post("/res/", response_model=Res)
+# response_model定义响应模型
+async def create_item(item: Res):
+    return item
+
+
+class UserIn(BaseModel):
+    username: str
+    password: str
+    email: EmailStr
+    full_name: str | None = None
+
+
+class UserOut(BaseModel):
+    username: str
+    email: EmailStr
+    full_name: str | None = None
+
+
+@app.post("/useres/", response_model=UserOut)
+# 通过不同模型过滤password
+async def create_user(user: UserIn):
+    return user
+
+
+class Meti(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    tax: float = 10.5
+    tags: list[str] = []
+
+
+metis = {
+    "foo": {"name": "Foo", "price": 50.2},
+    "bar": {"name": "Bar", "description": "The bartenders", "price": 62, "tax": 20.2},
+    "baz": {"name": "Baz", "description": None, "price": 50.2, "tax": 10.5, "tags": []},
+}
+
+
+@app.get("/metis/{item_id}", response_model=Meti, response_model_exclude_unset=True)
+# response_model_exclude_unset排除未设置值的属性
+async def read_item(item_id: str):
+    return metis[item_id]
+
+
+@app.get("/metis/{item_id}/name", response_model=Meti, response_model_include={"name", "description"},)
+# response_model_include只返回指定属性
+async def read_item_name(item_id: str):
+    return metis[item_id]
+
+
+@app.get("/metis/{item_id}/public", response_model=Meti, response_model_exclude={"tax"})
+# response_model_exclude排除指定属性
+async def read_item_public_data(item_id: str):
+    return metis[item_id]
