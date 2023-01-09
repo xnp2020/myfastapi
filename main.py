@@ -1,3 +1,12 @@
+from fastapi import Depends, FastAPI
+from datetime import datetime
+from fastapi.encoders import jsonable_encoder
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, Form
+from fastapi import FastAPI, status
+from typing import Union
 from pydantic import BaseModel, EmailStr
 from fastapi import FastAPI, Header
 from enum import Enum
@@ -132,7 +141,7 @@ async def read_items(q: str | None = Query(
     max_length=50,
     regex="^fixedquery$",
     deprecated=True,
-    include_in_schema=False)
+    include_in_schema=True)
 ):
     results = {"items": [{"item_id": "Foo"}, {"item_id": "Bar"}]}
     if q:
@@ -344,8 +353,8 @@ class Res(BaseModel):
     tags: list[str] = []
 
 
-@app.post("/res/", response_model=Res)
-# response_model定义响应模型
+@app.post("/res/", response_model=Res, summary="aaabbb", description="Create an item with all the information, name, description, price, tax and a set of unique tags", response_description="The created item",)
+# response_model定义响应模型，summary、description、response_description定义docs中接口的信息
 async def create_item(item: Res):
     return item
 
@@ -401,4 +410,232 @@ async def read_item_name(item_id: str):
 async def read_item_public_data(item_id: str):
     return metis[item_id]
 
-# dfdf
+
+class UserBase(BaseModel):
+    # 抽象共同的属性
+    username: str
+    email: EmailStr
+    full_name: str | None = None
+
+
+class UserIncome(UserBase):
+    # 模型继承
+    password: str
+
+
+class UserOutcome(UserBase):
+    pass
+
+
+class UserInDB(UserBase):
+    hashed_password: str
+
+
+def fake_password_hasher(raw_password: str):
+    return "supersecret" + raw_password
+
+
+def fake_save_user(user_income: UserIncome):
+    hashed_password = fake_password_hasher(user_income.password)
+    # Pydantic models .dict()方法将模型转换成python字典
+    user_in_db = UserInDB(**user_income.dict(),
+                          hashed_password=hashed_password)
+    print("User saved! ..not really")
+    return user_in_db
+
+
+@app.post("/userincome/", response_model=UserOutcome)
+async def create_user(user_income: UserIncome):
+    user_saved = fake_save_user(user_income)
+    return user_saved
+
+
+class BaseItem(BaseModel):
+    description: str
+    type: str
+
+
+class CarItem(BaseItem):
+    type = "car"
+
+
+class PlaneItem(BaseItem):
+    type = "plane"
+    size: int
+
+
+items = {
+    "item1": {"description": "All my friends drive a low rider", "type": "car"},
+    "item2": {
+        "description": "Music is my aeroplane, it's my aeroplane",
+        "type": "plane",
+        "size": 5,
+    },
+}
+
+
+@app.get("/carplas/{item_id}", response_model=Union[PlaneItem, CarItem])
+# Union：多个模型的集合
+async def read_item(item_id: str):
+    return items[item_id]
+
+
+class Listmodel(BaseModel):
+    name: str
+    description: str
+
+
+listModels = [
+    {"name": "Foo", "description": "There comes my hero"},
+    {"name": "Red", "description": "It's my aeroplane"},
+]
+
+
+@app.get("/listmodels/", response_model=list[Listmodel], status_code=status.HTTP_201_CREATED)
+# 返回list
+# status
+async def read_items():
+    return listModels
+
+
+@app.get("/keyword-weights/", response_model=dict[str, float], status_code=201)
+# 返回任意字典，但是key和value类型确定
+# status_code指定返回码
+async def read_keyword_weights():
+    return {"foo": 2.3, "bar": 3.4}
+
+
+class Tags(Enum):
+    root = "root"
+    login = "login"
+
+
+@app.post("/login/", tags=[Tags.login])
+async def login(username: str = Form(), password: str = Form()):
+    # http Form
+    return {"username": username}
+
+
+@app.post("/files/", tags=["files"])
+async def create_file(file: bytes = File()):
+    # File将所有的文件内容存储在内存中，适合小文件
+    return {"file_size": len(file)}
+
+
+@app.post("/uploadfile/", tags=["files"])
+async def create_upload_file(file: UploadFile):
+    # UploadFile对比File有如下优势：
+    # 1.如果文件超过指定大小，则存储在磁盘上，适合大文件
+    # 2.可以从上传文件获取元数据（filename，content_type，file）
+    # 3.有一个file-like async接口（write(data)，read(size)，seek(offset)，close()）
+    return {"filename": file.filename}
+
+
+@app.post("/files2/", tags=["files"])
+async def create_file(file: bytes | None = File(default=None, description="A file read as bytes")):
+    # default=None表示可选
+    if not file:
+        return {"message": "No file sent"}
+    else:
+        return {"file_size": len(file)}
+
+
+@app.post("/uploadfile2/", tags=["files"])
+async def create_upload_file(file: UploadFile | None = File(description="A file read as UploadFile")):
+    if not file:
+        return {"message": "No upload file sent"}
+    else:
+        return {"filename": file.filename}
+
+
+@app.post("/files3/", tags=["files"])
+# 上传多文件
+async def create_files(files: list[bytes] = File(description="Multiple files as bytes")):
+    return {"file_sizes": [len(file) for file in files]}
+
+
+@app.post("/uploadfiles3/", tags=["files"])
+# 上传多文件
+async def create_upload_files(files: list[UploadFile] = File(description="Multiple files as UploadFile"),):
+    return {"filenames": [file.filename for file in files]}
+
+
+@app.get("/", tags=[Tags.root])
+async def main():
+    content = """
+<body>
+<form action="/files3/" enctype="multipart/form-data" method="post">
+<input name="files" type="file" multiple>
+<input type="submit">
+</form>
+<form action="/uploadfiles3/" enctype="multipart/form-data" method="post">
+<input name="files" type="file" multiple>
+<input type="submit">
+</form>
+</body>
+    """
+    return HTMLResponse(content=content)
+
+
+@app.post("/files4/", tags=["files"])
+# File和Form同时声明
+# docstring会出现在docs中的description
+async def create_file(
+    file: bytes = File(), fileb: UploadFile = File(), token: str = Form()
+):
+    """
+    Create an item with all the information:
+
+    - **name**: each item must have a name
+    - **description**: a long description
+    - **price**: required
+    - **tax**: if the item doesn't have tax, you can omit this
+    - **tags**: a set of unique tag strings for this item
+    """
+    return {
+        "file_size": len(file),
+        "token": token,
+        "fileb_content_type": fileb.content_type,
+    }
+
+
+projects = {"foo": "The Foo Wrestlers"}
+
+
+@app.get("/projs/{item_id}", deprecated=True)
+async def read_item(item_id: str):
+    if item_id not in projects:
+        # HTTPException抛异常，detail接受str、dict、list等，并转成json，headers添加响应头
+        raise HTTPException(status_code=404, detail="Item not found", headers={
+                            "X-Error": "There goes my error"},)
+    return {"item": projects[item_id]}
+
+
+fake_db = {}
+
+
+class Ab(BaseModel):
+    title: str
+    timestamp: datetime
+    description: str | None = None
+
+
+@app.put("/abs/{id}")
+# jsonable_encoder转换Pydantic model为json
+def update_item(id: str, ab: Ab):
+    json_compatible_item_data = jsonable_encoder(ab)
+    fake_db[id] = json_compatible_item_data
+
+
+async def common_parameters(q: str | None = None, skip: int = 0, limit: int = 100):
+    return {"q": q, "skip": skip, "limit": limit}
+
+
+@app.get("/coms/")
+async def read_items(commons: dict = Depends(common_parameters)):
+    return commons
+
+
+@app.get("/users/")
+async def read_users(commons: dict = Depends(common_parameters)):
+    return commons
